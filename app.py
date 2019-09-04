@@ -1,12 +1,16 @@
-from flask import Flask,request,make_response,render_template,redirect,url_for
-from flask_cors import CORS
 import os
+from flask import Flask,make_response,render_template,redirect,url_for,jsonify
+from flask import g,current_app,request,session
+from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-# from flask_login import login_user,UserMixin,LoginManager,login_required
-# from werkzeug.security import generate_password_hash,check_password_hash
+from flask_httpauth import HTTPBasicAuth
 
+from flask_login import login_user,UserMixin,LoginManager,login_required
+from werkzeug.security import generate_password_hash,check_password_hash
+from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 # login_manager = LoginManager()
 # login_manager.login_view = 'auth.login'
+
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
@@ -21,13 +25,94 @@ db = SQLAlchemy(app)
 CORS(app,supports_credentials=True)
 
 @app.after_request
-def af_request(resp):
+def after_request(resp):
 	resp = make_response(resp)
 	resp.headers['Access-Control-Allow-Origin'] = '*'
 	resp.headers['Access-Control-Allow-Methods'] = 'GET,POST'
 	resp.headers['Access-Control-Allow-Headers'] = 'x-requested-with,content-type'
 	return resp
 
+
+#-------init http auth------------
+
+auth = HTTPBasicAuth()
+
+@auth.verify_password
+def verify_password(username_token,password):
+	if username_token == '':
+		return False
+	if password == '':
+		g.currnet_user = User.verify_auth_token(username_token)
+		g.token_used = True
+		return g.currnet_user is not None
+	user = User.query.filter_by(username = username_token).first()
+	if not user:
+		return False
+	g.currnet_user = user
+	g.token_used = False
+	return user.verify_password(password)
+
+@auth.error_handler
+def auth_error():
+	print("navigator : auth_error")
+	return unauthorized('Invalid credentials')
+
+
+
+#-----------------------------------  end  --------------------------------------------
+#
+#
+#
+#
+#
+#-----------------------------------error begin--------------------------------------------
+def forbidden(message):
+	response = jsonify({'error':'forbidden','message':message})
+	response.status_code = 403
+	return response
+
+
+def unauthorized(message):
+    response = jsonify({'error': 'unauthorized', 'message': message})
+    response.status_code = 401
+    return response
+
+
+def bad_request(message):
+    response = jsonify({'error': 'bad request', 'message': message})
+    response.status_code = 400
+    return response
+
+@app.errorhandler(404)
+def page_not_found(e):
+	if request.accept_mimetypes.accept_json:
+		response = jsonify({'error':'not found'})
+		response.status_code = 404
+		return response
+	return '404',404
+
+#-----------------------------------  end  --------------------------------------------
+#
+#
+#
+#
+#
+#-----------------------------------hooker begin--------------------------------------------
+
+# @app.before_request
+# @auth.login_required
+# def before_request():
+# 	# print("here is before request")
+# 	if not g.currnet_user.is_anonymous and not g.currnet_user.confirmed:
+# 		return forbidden('Unconfirmed account')
+
+
+
+#-----------------------------------  end  --------------------------------------------
+#
+#
+#
+#-----------------------------------router begin--------------------------------------------
 @app.route('/')
 def index():
 	return "200 OK"
@@ -37,7 +122,9 @@ def login():
 	json = request.get_json()
 	user = User.query.filter_by(username = json['username']).first()
 	if user.verify_password(json['password']):
-		return 'checkin'
+		# g.currnet_user = user
+		token = user.generate_auth_token(expiration=3600)
+		return token
 	return "wrong password"
 
 
@@ -55,15 +142,60 @@ def register():
 def article():
 	return 'this is article'
 
+@app.route('/tokens',methods=['POST'])
+def get_token():
+	if g.currnet_user.is_anonymous or g.token_used:
+		return unauthorized('Invalid credentials')
+	return jsonify({'token':g.currnet_user.generate_auth_token(expiration=3600),'expiration':3600})
 
-class User(db.Model):
+#-----------------------------------end--------------------------------------------
+#
+#
+#
+#
+#
+#-----------------------------------Data Base begin--------------------------------------------
+class User(UserMixin,db.Model):
 	__tablename__ = 'users'
 	id = db.Column(db.Integer, primary_key=True)
 	email = db.Column(db.String(64),unique=True,index=True)
 	username = db.Column(db.String(64),unique=True,index=True)
 	password_hash = db.Column(db.String(128))
 
+	# article = db.relationship('Article',secondary=user_article,back_populates='users')
 
+	@property
+	def password(self):
+		raise AttributeError('password is not a readable attribute')
+
+	@password.setter
+	def password(self,password):
+		print("here seeter")
+		self.password_hash = generate_password_hash(password)
+
+	def verify_password(self,password):
+		return check_password_hash(self.password_hash,password)
+
+	def generate_auth_token(self,expiration):
+		s = Serializer(current_app.config['SECRET_KEY'],expires_in = expiration)
+		return  s.dumps({'id':self.id}).decode('utf-8')
+
+	@staticmethod
+	def verify_auth_token(token):
+		s = Serializer(current_app.config['SECRET_KEY'])
+		try:
+			data = s.loads(token)
+		except:
+			return None
+		return User.query.get(data['id'])
+
+	def __repr__(self):
+		return '<User %r>' % self.username
+
+#-----------------------------------end----------------------------------------------------
+#
+#
+#
 if __name__ == '__main__':
 	db.drop_all()
 	db.create_all()

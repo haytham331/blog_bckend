@@ -99,11 +99,17 @@ def page_not_found(e):
 #
 #-----------------------------------hooker begin--------------------------------------------
 
-# @app.before_request
 # @auth.login_required
-# def before_request():
-# 	# print("here is before request")
-# 	if not g.currnet_user.is_anonymous and not g.currnet_user.confirmed:
+
+@app.before_request
+def before_request():
+	if(request.method == 'POST' or request.method == 'GET'):
+		print(request.path)
+		print(request.method)
+		# print(request.headers)
+		print(request.get_data())
+	# print("here is before request")
+	# if not g.currnet_user.is_anonymous and not g.currnet_user.confirmed:
 # 		return forbidden('Unconfirmed account')
 
 
@@ -140,7 +146,8 @@ def register():
 
 @app.route('/article')
 def article():
-	return 'this is article'
+	return 'this is article page'
+
 
 @app.route('/tokens',methods=['POST'])
 def get_token():
@@ -170,7 +177,6 @@ class User(UserMixin,db.Model):
 
 	@password.setter
 	def password(self,password):
-		print("here seeter")
 		self.password_hash = generate_password_hash(password)
 
 	def verify_password(self,password):

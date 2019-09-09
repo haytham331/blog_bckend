@@ -1,3 +1,6 @@
+#
+#
+#-----------------------------------import begin--------------------------------------------
 import os
 from flask import Flask,make_response,render_template,redirect,url_for,jsonify
 from flask import g,current_app,request,session
@@ -11,7 +14,11 @@ from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 # login_manager = LoginManager()
 # login_manager.login_view = 'auth.login'
 
-
+#-----------------------------------import end--------------------------------------------
+#
+#
+#
+#-----------------------------------config begin--------------------------------------------
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 app = Flask(__name__)
@@ -23,27 +30,40 @@ db = SQLAlchemy(app)
 # login_manager.init_app(app)
 
 CORS(app,supports_credentials=True)
-
+#-----------------------------------config end--------------------------------------------
+#
+#
+#
+#-----------------------------------hook begin--------------------------------------------
 @app.after_request
 def after_request(resp):
 	resp = make_response(resp)
-	resp.headers['Access-Control-Allow-Origin'] = '*'
+	resp.headers['Access-Control-Allow-Origin'] = 'http://127.0.0.1:8080'
 	resp.headers['Access-Control-Allow-Methods'] = 'GET,POST'
-	resp.headers['Access-Control-Allow-Headers'] = 'x-requested-with,content-type'
+	# resp.headers['Access-Control-Allow-Credentials'] = 'true'
+	# resp.headers['Access-Control-Allow-Headers'] = 'x-requested-with,content-type,token'
+	resp.headers['Access-Control-Allow-Headers'] = 'content-type,token'
+	# resp.headers['Access-Control-Allow-Headers'] = 'token'
 	return resp
-
-
-#-------init http auth------------
-
+#-----------------------------------hook end--------------------------------------------
+#
+#
+#
+#
+#-----------------------------------auth begin--------------------------------------------
 auth = HTTPBasicAuth()
 
 @auth.verify_password
 def verify_password(username_token,password):
+	print("auth vertify pw")
+	print("vertify token:",request.headers.get('Token'))
+	username_token = request.headers.get('Token')
 	if username_token == '':
 		return False
 	if password == '':
 		g.currnet_user = User.verify_auth_token(username_token)
 		g.token_used = True
+		print(g)
 		return g.currnet_user is not None
 	user = User.query.filter_by(username = username_token).first()
 	if not user:
@@ -58,63 +78,31 @@ def auth_error():
 	return unauthorized('Invalid credentials')
 
 
+# @auth.verify_token
+# def verify_token(token):
+# 	verify_password(token,'')
 
-#-----------------------------------  end  --------------------------------------------
-#
-#
-#
-#
-#
-#-----------------------------------error begin--------------------------------------------
-def forbidden(message):
-	response = jsonify({'error':'forbidden','message':message})
-	response.status_code = 403
-	return response
-
-
-def unauthorized(message):
-    response = jsonify({'error': 'unauthorized', 'message': message})
-    response.status_code = 401
-    return response
-
-
-def bad_request(message):
-    response = jsonify({'error': 'bad request', 'message': message})
-    response.status_code = 400
-    return response
-
-@app.errorhandler(404)
-def page_not_found(e):
-	if request.accept_mimetypes.accept_json:
-		response = jsonify({'error':'not found'})
-		response.status_code = 404
-		return response
-	return '404',404
-
-#-----------------------------------  end  --------------------------------------------
+#-----------------------------------auth  end--------------------------------------------
 #
 #
 #
 #
 #
 #-----------------------------------hooker begin--------------------------------------------
-
 # @auth.login_required
 
 @app.before_request
 def before_request():
 	if(request.method == 'POST' or request.method == 'GET'):
-		print(request.path)
-		print(request.method)
-		# print(request.headers)
-		print(request.get_data())
-	# print("here is before request")
-	# if not g.currnet_user.is_anonymous and not g.currnet_user.confirmed:
-# 		return forbidden('Unconfirmed account')
-
-
+		noNeedLoginPath = ['/login','/register']
+		# if request.path not in noNeedLoginPath:
+		print(request.headers)
+			# print(request.headers.get('Token'))
+			# token = request.headers.get('Token')
+			# get_pw(token)
 
 #-----------------------------------  end  --------------------------------------------
+#
 #
 #
 #
@@ -128,11 +116,10 @@ def login():
 	json = request.get_json()
 	user = User.query.filter_by(username = json['username']).first()
 	if user.verify_password(json['password']):
-		# g.currnet_user = user
+		g.currnet_user = user
 		token = user.generate_auth_token(expiration=3600)
 		return token
 	return "wrong password"
-
 
 @app.route('/register',methods=['POST'])
 def register():
@@ -143,11 +130,21 @@ def register():
 	db.session.commit()
 	return "200 OK register"
 
-
-@app.route('/article')
+# @auth.login_required
+@app.route('/postlist')
 def article():
-	return 'this is article page'
+	ptemp = Post.query.all()
+	print(ptemp)
+	for i in ptemp:
+		print(i)
+		print(i.to_json())
+	return jsonify({
+			'posts': [post.to_json() for post in ptemp],
+		})
 
+@app.route('/newpost',methods=['POST'])
+def new_post():
+	pass
 
 @app.route('/tokens',methods=['POST'])
 def get_token():
@@ -158,6 +155,31 @@ def get_token():
 #-----------------------------------end--------------------------------------------
 #
 #
+#
+#-----------------------------------error begin--------------------------------------------
+def forbidden(message):
+	response = jsonify({'error':'forbidden','message':message})
+	response.status_code = 403
+	return response
+
+def unauthorized(message):
+    response = jsonify({'error': 'unauthorized', 'message': message})
+    response.status_code = 401
+    return response
+
+def bad_request(message):
+    response = jsonify({'error': 'bad request', 'message': message})
+    response.status_code = 400
+    return response
+
+@app.errorhandler(404)
+def page_not_found(e):
+	if request.accept_mimetypes.accept_json:
+		response = jsonify({'error':'not found'})
+		response.status_code = 404
+		return response
+	return '404',404
+#-----------------------------------error  end  --------------------------------------------
 #
 #
 #
@@ -180,6 +202,7 @@ class User(UserMixin,db.Model):
 		self.password_hash = generate_password_hash(password)
 
 	def verify_password(self,password):
+		print("User vertify pw")
 		return check_password_hash(self.password_hash,password)
 
 	def generate_auth_token(self,expiration):
@@ -191,6 +214,7 @@ class User(UserMixin,db.Model):
 		s = Serializer(current_app.config['SECRET_KEY'])
 		try:
 			data = s.loads(token)
+			print("what have I get?: ",User.query.get(data['id']))
 		except:
 			return None
 		return User.query.get(data['id'])
@@ -198,15 +222,125 @@ class User(UserMixin,db.Model):
 	def __repr__(self):
 		return '<User %r>' % self.username
 
+
+class Post(db.Model):
+	__tablename__ = 'posts'
+	id = db.Column(db.Integer, primary_key=True)
+	title = db.Column(db.String(64),unique=True,index=True)
+	content = db.Column(db.String(64))
+
+	def __repr__(self):
+		return '<Post %r>' % self.title
+
+	def to_json(self):
+		json_post = {
+			'title': self.title,
+			'content': self.content,
+		}
+		return json_post
+
+
+
 #-----------------------------------end----------------------------------------------------
 #
 #
 #
+#------------------------------------------------------------------------
 if __name__ == '__main__':
 	db.drop_all()
 	db.create_all()
+	temp1 = Post(title='title1',content='content1')
+	temp2 = Post(title='title2',content='content2')
+	temp3 = Post(title='title3',content='content3')
+	db.session.add_all([temp1,temp2,temp3])
+	db.session.commit()
 	app.run()
 	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -277,34 +411,6 @@ if __name__ == '__main__':
 # @login_manager.user_loader
 # def load_user(user_id):
 # 	return user.query.get(int(user_id))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

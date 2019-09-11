@@ -142,9 +142,14 @@ def article():
 			'posts': [post.to_json() for post in ptemp],
 		})
 
-@app.route('/newpost',methods=['POST'])
+@auth.login_required
+@app.route('/creatpost',methods=['POST'])
 def new_post():
-	pass
+	json = request.get_json()
+	newpost = Post(title=json['title'],content=json['content'])
+	db.session.add(newpost)
+	db.session.commit()
+	return "200 OK"
 
 @app.route('/tokens',methods=['POST'])
 def get_token():
@@ -250,9 +255,7 @@ if __name__ == '__main__':
 	db.drop_all()
 	db.create_all()
 	temp1 = Post(title='title1',content='content1')
-	temp2 = Post(title='title2',content='content2')
-	temp3 = Post(title='title3',content='content3')
-	db.session.add_all([temp1,temp2,temp3])
+	db.session.add(temp1)
 	db.session.commit()
 	app.run()
 	

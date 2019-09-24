@@ -142,6 +142,14 @@ def article():
 			'posts': [post.to_json() for post in ptemp],
 		})
 
+@app.route('/getpost')
+def getpost():
+	postId = request.args.get('id')
+	print(postId)
+	postDetail = Post.query.filter_by(id = postId).first()
+	return jsonify(postDetail.to_json())
+
+
 @auth.login_required
 @app.route('/creatpost',methods=['POST'])
 def new_post():
@@ -239,6 +247,7 @@ class Post(db.Model):
 
 	def to_json(self):
 		json_post = {
+			'id':self.id,
 			'title': self.title,
 			'content': self.content,
 		}
